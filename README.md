@@ -57,6 +57,7 @@ streamlit run app.py
 - `app.py`: app principal Streamlit + lógica de base de datos + reportes PDF.
 - `requirements.txt`: dependencias Python.
 - `.streamlit/config.toml`: configuración global de Streamlit (tema oscuro).
+- `assets/logo_bio_funga.png`: logo opcional para marca de agua atenuada en el fondo.
 - `data/registro_hongos.db`: se crea automáticamente al ejecutar la app.
 
 ## Siguiente mejora sugerida
