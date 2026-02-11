@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -16,6 +16,11 @@ from reportlab.lib.units import cm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 DB_PATH = Path("data") / "registro_hongos.db"
+APP_TIMEZONE = timezone(timedelta(hours=-6))
+
+
+def now_gmt6() -> datetime:
+    return datetime.now(APP_TIMEZONE)
 
 
 def get_connection() -> sqlite3.Connection:
@@ -65,7 +70,7 @@ def create_greenhouse(name: str) -> None:
     with get_connection() as conn:
         conn.execute(
             "INSERT INTO greenhouses (name, created_at) VALUES (?, ?)",
-            (name.strip(), datetime.now().isoformat()),
+            (name.strip(), now_gmt6().isoformat()),
         )
 
 
@@ -108,7 +113,7 @@ def add_reading(
                 humidity_max,
                 humidity_min,
                 co2,
-                datetime.now().isoformat(),
+                now_gmt6().isoformat(),
             ),
         )
 
@@ -210,20 +215,20 @@ def build_pdf_report(greenhouse_name: str, daily_df: pd.DataFrame) -> bytes:
     story = []
 
     story.append(Paragraph(f"Reporte climático - {greenhouse_name}", styles["Title"]))
-    story.append(Paragraph(f"Generado: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles["Normal"]))
+    story.append(Paragraph(f"Generado: {now_gmt6().strftime('%Y-%m-%d %H:%M')}", styles["Normal"]))
     story.append(Spacer(1, 0.5 * cm))
 
     chart_df = daily_df.copy()
     chart_df["date"] = pd.to_datetime(chart_df["date"])
 
     fig1, ax1 = plt.subplots(figsize=(8, 3.2))
-    ax1.bar(chart_df["date"], chart_df["humidity_avg"], color="#5DA5DA", alpha=0.65, label="Humedad (%)")
-    ax1.set_ylabel("Humedad relativa promedio (%)")
+    ax1.plot(chart_df["date"], chart_df["temp_avg"], color="#F15854", marker="o", linewidth=2, label="Temp. (°C)")
+    ax1.set_ylabel("Temperatura promedio (°C)")
     ax1.set_xlabel("Fecha")
 
     ax2 = ax1.twinx()
-    ax2.plot(chart_df["date"], chart_df["temp_avg"], color="#F15854", marker="o", linewidth=2, label="Temp. (°C)")
-    ax2.set_ylabel("Temperatura promedio (°C)")
+    ax2.bar(chart_df["date"], chart_df["humidity_avg"], color="#5DA5DA", alpha=0.65, label="Humedad (%)")
+    ax2.set_ylabel("Humedad relativa promedio (%)")
     fig1.autofmt_xdate()
     fig1.tight_layout()
 
@@ -294,6 +299,7 @@ def main() -> None:
     st.caption(
         "Registra lecturas por invernadero, calcula promedios diarios automáticamente y genera reportes."
     )
+    st.caption(f"Zona horaria operativa: GMT-6 | Hora actual: {now_gmt6().strftime('%Y-%m-%d %H:%M:%S')}")
 
     init_db()
     greenhouses = get_greenhouses()
@@ -349,17 +355,18 @@ def main() -> None:
         st.subheader(f"Nueva lectura en: {selected_name}")
         with st.form("new_reading_form", clear_on_submit=True):
             col_date, col_time = st.columns(2)
-            record_date = col_date.date_input("Fecha", value=datetime.today())
-            record_time = col_time.time_input("Hora", value=datetime.now().time())
+            current_local_dt = now_gmt6()
+            record_date = col_date.date_input("Fecha", value=current_local_dt.date())
+            record_time = col_time.time_input("Hora (GMT-6)", value=current_local_dt.time().replace(microsecond=0))
 
             c1, c2, c3 = st.columns(3)
-            temp_max = c1.number_input("Temperatura máxima (°C)", value=25.0)
-            temp_min = c2.number_input("Temperatura mínima (°C)", value=18.0)
-            co2 = c3.number_input("CO₂ (ppm)", value=800.0, min_value=0.0)
+            temp_max = c1.number_input("Temperatura máxima (°C)", value=25.0, step=0.1, format="%.1f")
+            temp_min = c2.number_input("Temperatura mínima (°C)", value=18.0, step=0.1, format="%.1f")
+            co2 = c3.number_input("CO₂ (ppm)", value=800.0, min_value=0.0, step=0.1, format="%.1f")
 
             c4, c5 = st.columns(2)
-            humidity_max = c4.number_input("Humedad relativa máxima (%)", value=90.0, min_value=0.0, max_value=100.0)
-            humidity_min = c5.number_input("Humedad relativa mínima (%)", value=75.0, min_value=0.0, max_value=100.0)
+            humidity_max = c4.number_input("Humedad relativa máxima (%)", value=90.0, min_value=0.0, max_value=100.0, step=0.1, format="%.1f")
+            humidity_min = c5.number_input("Humedad relativa mínima (%)", value=75.0, min_value=0.0, max_value=100.0, step=0.1, format="%.1f")
 
             submitted = st.form_submit_button("Guardar lectura")
             if submitted:
@@ -400,16 +407,16 @@ def main() -> None:
                 edit_time = e2.time_input("Hora", value=rd_at.time(), key="edit_time")
 
                 e3, e4, e5 = st.columns(3)
-                edit_temp_max = e3.number_input("Temp. máx (°C)", value=float(selected_reading["temp_max"]), key="edit_tmax")
-                edit_temp_min = e4.number_input("Temp. mín (°C)", value=float(selected_reading["temp_min"]), key="edit_tmin")
-                edit_co2 = e5.number_input("CO₂ (ppm)", value=float(selected_reading["co2"]), min_value=0.0, key="edit_co2")
+                edit_temp_max = e3.number_input("Temp. máx (°C)", value=float(selected_reading["temp_max"]), step=0.1, format="%.1f", key="edit_tmax")
+                edit_temp_min = e4.number_input("Temp. mín (°C)", value=float(selected_reading["temp_min"]), step=0.1, format="%.1f", key="edit_tmin")
+                edit_co2 = e5.number_input("CO₂ (ppm)", value=float(selected_reading["co2"]), min_value=0.0, step=0.1, format="%.1f", key="edit_co2")
 
                 e6, e7 = st.columns(2)
                 edit_hmax = e6.number_input(
-                    "HR máx (%)", value=float(selected_reading["humidity_max"]), min_value=0.0, max_value=100.0, key="edit_hmax"
+                    "HR máx (%)", value=float(selected_reading["humidity_max"]), min_value=0.0, max_value=100.0, step=0.1, format="%.1f", key="edit_hmax"
                 )
                 edit_hmin = e7.number_input(
-                    "HR mín (%)", value=float(selected_reading["humidity_min"]), min_value=0.0, max_value=100.0, key="edit_hmin"
+                    "HR mín (%)", value=float(selected_reading["humidity_min"]), min_value=0.0, max_value=100.0, step=0.1, format="%.1f", key="edit_hmin"
                 )
 
                 col_update, col_del = st.columns(2)
@@ -444,39 +451,44 @@ def main() -> None:
             st.info("Agrega lecturas para visualizar las gráficas y generar reportes.")
         else:
             chart_df = daily_df.copy()
-
-            hum_chart = (
-                alt.Chart(chart_df)
-                .mark_bar(color="#72B7B2", opacity=0.65)
-                .encode(
-                    x=alt.X("date:T", title="Fecha"),
-                    y=alt.Y("humidity_avg:Q", title="Humedad relativa promedio (%)"),
-                    tooltip=["date:T", "humidity_avg:Q", "temp_avg:Q", "readings_count:Q"],
-                )
-            )
+            chart_df["date_label"] = chart_df["date"].dt.strftime("%Y-%m-%d")
 
             temp_chart = (
                 alt.Chart(chart_df)
-                .mark_line(color="#E45756", point=True, strokeWidth=3)
+                .mark_line(color="#FF8A65", point=True, strokeWidth=3)
                 .encode(
-                    x="date:T",
+                    x=alt.X("date_label:N", title="Fecha", sort=chart_df["date_label"].tolist()),
                     y=alt.Y("temp_avg:Q", title="Temperatura promedio (°C)"),
-                    tooltip=["date:T", "humidity_avg:Q", "temp_avg:Q", "readings_count:Q"],
+                    tooltip=["date_label:N", "humidity_avg:Q", "temp_avg:Q", "readings_count:Q"],
+                )
+            )
+
+            hum_chart = (
+                alt.Chart(chart_df)
+                .mark_bar(color="#4DD0E1", opacity=0.7)
+                .encode(
+                    x=alt.X("date_label:N", title="Fecha", sort=chart_df["date_label"].tolist()),
+                    y=alt.Y(
+                        "humidity_avg:Q",
+                        title="Humedad relativa promedio (%)",
+                        axis=alt.Axis(orient="right"),
+                    ),
+                    tooltip=["date_label:N", "humidity_avg:Q", "temp_avg:Q", "readings_count:Q"],
                 )
             )
 
             st.altair_chart(
-                alt.layer(hum_chart, temp_chart).resolve_scale(y="independent").properties(height=360),
+                alt.layer(temp_chart, hum_chart).resolve_scale(y="independent").properties(height=360),
                 use_container_width=True,
             )
 
             co2_chart = (
                 alt.Chart(chart_df)
-                .mark_bar(color="#54A24B")
+                .mark_bar(color="#81C784")
                 .encode(
-                    x=alt.X("date:T", title="Fecha"),
+                    x=alt.X("date_label:N", title="Fecha", sort=chart_df["date_label"].tolist()),
                     y=alt.Y("co2_avg:Q", title="CO₂ promedio diario (ppm)"),
-                    tooltip=["date:T", "co2_avg:Q", "readings_count:Q"],
+                    tooltip=["date_label:N", "co2_avg:Q", "readings_count:Q"],
                 )
                 .properties(height=320)
             )
