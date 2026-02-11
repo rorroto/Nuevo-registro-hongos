@@ -25,6 +25,8 @@ Aplicación en **Streamlit** para registrar parámetros ambientales en producci�
   - PDF con gráficas y resumen tabular
 - Persistencia en el tiempo:
   - Base de datos SQLite local (`data/registro_hongos.db`)
+- Experiencia visual:
+  - Tema oscuro por defecto para mejor uso en campo y baja iluminación
 
 ## Instalación local
 
@@ -54,6 +56,7 @@ streamlit run app.py
 
 - `app.py`: app principal Streamlit + lógica de base de datos + reportes PDF.
 - `requirements.txt`: dependencias Python.
+- `.streamlit/config.toml`: configuración global de Streamlit (tema oscuro).
 - `data/registro_hongos.db`: se crea automáticamente al ejecutar la app.
 
 ## Siguiente mejora sugerida
