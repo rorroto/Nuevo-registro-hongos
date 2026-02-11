@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import base64
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
@@ -17,10 +18,46 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 
 DB_PATH = Path("data") / "registro_hongos.db"
 APP_TIMEZONE = timezone(timedelta(hours=-6))
+LOGO_PATH = Path("assets") / "logo_bio_funga.png"
 
 
 def now_gmt6() -> datetime:
     return datetime.now(APP_TIMEZONE)
+
+
+def inject_watermark_logo() -> None:
+    """Muestra un logo de fondo atenuado si existe en assets/logo_bio_funga.png."""
+    if not LOGO_PATH.exists():
+        return
+
+    encoded_logo = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+    st.markdown(
+        f"""
+        <style>
+        .stApp::before {{
+            content: "";
+            position: fixed;
+            inset: 0;
+            background-image: url("data:image/png;base64,{encoded_logo}");
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: min(55vw, 500px);
+            opacity: 0.08;
+            pointer-events: none;
+            z-index: 0;
+        }}
+
+        .stApp > header,
+        .stApp > div,
+        .main,
+        section.main > div {{
+            position: relative;
+            z-index: 1;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def get_connection() -> sqlite3.Connection:
@@ -295,6 +332,7 @@ def validate_extremes(min_value: float, max_value: float, metric_name: str) -> N
 
 def main() -> None:
     st.set_page_config(page_title="Registro ambiental de hongos", page_icon="🍄", layout="wide")
+    inject_watermark_logo()
     st.title("🍄 Registro ambiental para producción de hongos")
     st.caption(
         "Registra lecturas por invernadero, calcula promedios diarios automáticamente y genera reportes."
@@ -392,56 +430,81 @@ def main() -> None:
         if readings_df.empty:
             st.info("Aún no hay lecturas para este invernadero.")
         else:
-            show_df = readings_df.copy()
-            show_df["recorded_at"] = show_df["recorded_at"].dt.strftime("%Y-%m-%d %H:%M")
-            st.dataframe(show_df, use_container_width=True, hide_index=True)
+            if "editing_reading_id" not in st.session_state:
+                st.session_state.editing_reading_id = None
 
-            ids = readings_df["id"].tolist()
-            selected_reading_id = st.selectbox("Selecciona una lectura para editar o borrar", ids)
-            selected_reading = readings_df[readings_df["id"] == selected_reading_id].iloc[0]
+            headers = st.columns([1.8, 1, 1, 1, 1, 1, 1.5])
+            headers[0].markdown("**Fecha y hora**")
+            headers[1].markdown("**T máx**")
+            headers[2].markdown("**T mín**")
+            headers[3].markdown("**HR máx**")
+            headers[4].markdown("**HR mín**")
+            headers[5].markdown("**CO₂**")
+            headers[6].markdown("**Acciones**")
 
-            with st.form("edit_reading_form"):
-                rd_at = selected_reading["recorded_at"]
-                e1, e2 = st.columns(2)
-                edit_date = e1.date_input("Fecha", value=rd_at.date(), key="edit_date")
-                edit_time = e2.time_input("Hora", value=rd_at.time(), key="edit_time")
+            for row in readings_df.itertuples(index=False):
+                cols = st.columns([1.8, 1, 1, 1, 1, 1, 1.5])
+                cols[0].write(row.recorded_at.strftime("%Y-%m-%d %H:%M"))
+                cols[1].write(f"{row.temp_max:.1f}")
+                cols[2].write(f"{row.temp_min:.1f}")
+                cols[3].write(f"{row.humidity_max:.1f}")
+                cols[4].write(f"{row.humidity_min:.1f}")
+                cols[5].write(f"{row.co2:.1f}")
 
-                e3, e4, e5 = st.columns(3)
-                edit_temp_max = e3.number_input("Temp. máx (°C)", value=float(selected_reading["temp_max"]), step=0.1, format="%.1f", key="edit_tmax")
-                edit_temp_min = e4.number_input("Temp. mín (°C)", value=float(selected_reading["temp_min"]), step=0.1, format="%.1f", key="edit_tmin")
-                edit_co2 = e5.number_input("CO₂ (ppm)", value=float(selected_reading["co2"]), min_value=0.0, step=0.1, format="%.1f", key="edit_co2")
-
-                e6, e7 = st.columns(2)
-                edit_hmax = e6.number_input(
-                    "HR máx (%)", value=float(selected_reading["humidity_max"]), min_value=0.0, max_value=100.0, step=0.1, format="%.1f", key="edit_hmax"
-                )
-                edit_hmin = e7.number_input(
-                    "HR mín (%)", value=float(selected_reading["humidity_min"]), min_value=0.0, max_value=100.0, step=0.1, format="%.1f", key="edit_hmin"
-                )
-
-                col_update, col_del = st.columns(2)
-                update_submit = col_update.form_submit_button("Guardar cambios")
-                delete_submit = col_del.form_submit_button("Borrar lectura")
-
-                if update_submit:
-                    validate_extremes(edit_temp_min, edit_temp_max, "Temperatura")
-                    validate_extremes(edit_hmin, edit_hmax, "Humedad relativa")
-                    update_reading(
-                        int(selected_reading_id),
-                        datetime.combine(edit_date, edit_time),
-                        float(edit_temp_max),
-                        float(edit_temp_min),
-                        float(edit_hmax),
-                        float(edit_hmin),
-                        float(edit_co2),
-                    )
-                    st.success("Lectura actualizada.")
-                    st.rerun()
-
-                if delete_submit:
-                    delete_reading(int(selected_reading_id))
+                action_cols = cols[6].columns(2)
+                if action_cols[0].button("✏️", key=f"edit_{row.id}", help="Editar esta lectura"):
+                    st.session_state.editing_reading_id = int(row.id)
+                if action_cols[1].button("🗑️", key=f"delete_{row.id}", help="Eliminar esta lectura"):
+                    delete_reading(int(row.id))
                     st.success("Lectura eliminada.")
                     st.rerun()
+
+            selected_reading_id = st.session_state.editing_reading_id
+            if selected_reading_id is not None and selected_reading_id in readings_df["id"].tolist():
+                selected_reading = readings_df[readings_df["id"] == selected_reading_id].iloc[0]
+                st.markdown("### Editar lectura seleccionada")
+                with st.form("edit_reading_form"):
+                    rd_at = selected_reading["recorded_at"]
+                    e1, e2 = st.columns(2)
+                    edit_date = e1.date_input("Fecha", value=rd_at.date(), key="edit_date")
+                    edit_time = e2.time_input("Hora", value=rd_at.time().replace(microsecond=0), key="edit_time")
+
+                    e3, e4, e5 = st.columns(3)
+                    edit_temp_max = e3.number_input("Temp. máx (°C)", value=float(selected_reading["temp_max"]), step=0.1, format="%.1f", key="edit_tmax")
+                    edit_temp_min = e4.number_input("Temp. mín (°C)", value=float(selected_reading["temp_min"]), step=0.1, format="%.1f", key="edit_tmin")
+                    edit_co2 = e5.number_input("CO₂ (ppm)", value=float(selected_reading["co2"]), min_value=0.0, step=0.1, format="%.1f", key="edit_co2")
+
+                    e6, e7 = st.columns(2)
+                    edit_hmax = e6.number_input(
+                        "HR máx (%)", value=float(selected_reading["humidity_max"]), min_value=0.0, max_value=100.0, step=0.1, format="%.1f", key="edit_hmax"
+                    )
+                    edit_hmin = e7.number_input(
+                        "HR mín (%)", value=float(selected_reading["humidity_min"]), min_value=0.0, max_value=100.0, step=0.1, format="%.1f", key="edit_hmin"
+                    )
+
+                    col_update, col_cancel = st.columns(2)
+                    update_submit = col_update.form_submit_button("Guardar cambios")
+                    cancel_submit = col_cancel.form_submit_button("Cancelar")
+
+                    if update_submit:
+                        validate_extremes(edit_temp_min, edit_temp_max, "Temperatura")
+                        validate_extremes(edit_hmin, edit_hmax, "Humedad relativa")
+                        update_reading(
+                            int(selected_reading_id),
+                            datetime.combine(edit_date, edit_time),
+                            float(edit_temp_max),
+                            float(edit_temp_min),
+                            float(edit_hmax),
+                            float(edit_hmin),
+                            float(edit_co2),
+                        )
+                        st.session_state.editing_reading_id = None
+                        st.success("Lectura actualizada.")
+                        st.rerun()
+
+                    if cancel_submit:
+                        st.session_state.editing_reading_id = None
+                        st.rerun()
 
     with tab_graficas:
         st.subheader("Climograma y CO₂ promedio diario")
@@ -455,7 +518,7 @@ def main() -> None:
 
             temp_chart = (
                 alt.Chart(chart_df)
-                .mark_line(color="#FF8A65", point=True, strokeWidth=3)
+                .mark_line(color="#FF8A65", point=True, strokeWidth=3, interpolate="monotone")
                 .encode(
                     x=alt.X("date_label:N", title="Fecha", sort=chart_df["date_label"].tolist()),
                     y=alt.Y("temp_avg:Q", title="Temperatura promedio (°C)"),
@@ -478,7 +541,7 @@ def main() -> None:
             )
 
             st.altair_chart(
-                alt.layer(temp_chart, hum_chart).resolve_scale(y="independent").properties(height=360),
+                alt.layer(hum_chart, temp_chart).resolve_scale(y="independent").properties(height=360),
                 use_container_width=True,
             )
 
