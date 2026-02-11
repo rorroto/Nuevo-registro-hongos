@@ -1,9 +1,3 @@
- (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
-diff --git a/README.md b/README.md
-index 146e3014886af439b0256b8ef51dbbadfb3302f3..5b52a7995cd84e1b95a1d3f41383bd767c387019 100644
---- a/README.md
-+++ b/README.md
-@@ -1 +1,63 @@
 -# Nuevo-registro-hongos
 \ No newline at end of file
 +# Nuevo-registro-hongos
