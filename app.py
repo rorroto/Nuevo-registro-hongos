@@ -23,6 +23,7 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 
 DB_PATH = Path("data") / "registro_hongos.db"
 BACKUPS_DIR = Path("backups")
+BACKUP_INTERVAL_DAYS = 30
 APP_TIMEZONE = timezone(timedelta(hours=-6))
 LOGO_PATH = Path("assets") / "logo_bio_funga.png"
 
@@ -164,7 +165,7 @@ def set_setting(key: str, value: str) -> None:
         )
 
 
-def run_scheduled_backup(interval_hours: int = 24) -> tuple[bool, str]:
+def run_scheduled_backup(interval_days: int = BACKUP_INTERVAL_DAYS) -> tuple[bool, str]:
     BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
     if not DB_PATH.exists():
         return False, "La base de datos aún no existe."
@@ -173,7 +174,7 @@ def run_scheduled_backup(interval_hours: int = 24) -> tuple[bool, str]:
     now = now_gmt6()
     if last_backup_iso:
         last_backup = datetime.fromisoformat(last_backup_iso)
-        if now - last_backup < timedelta(hours=interval_hours):
+        if now - last_backup < timedelta(days=interval_days):
             return False, last_backup.strftime("%Y-%m-%d %H:%M")
 
     backup_name = f"registro_hongos_{now.strftime('%Y%m%d_%H%M%S')}.db"
@@ -482,16 +483,11 @@ def main() -> None:
         st.info("Inicia sesión o crea un usuario para usar la aplicación.")
         return
 
-    backup_hours = int(get_setting("backup_interval_hours", "24"))
     with st.sidebar.expander("💾 Copias de seguridad programadas"):
-        new_interval = st.number_input("Intervalo (horas)", min_value=1, max_value=168, value=backup_hours)
-        if st.button("Guardar configuración de respaldo"):
-            set_setting("backup_interval_hours", str(int(new_interval)))
-            st.success("Intervalo actualizado")
-            backup_hours = int(new_interval)
+        st.caption("Frecuencia automática: cada 30 días")
 
         if st.button("Ejecutar respaldo ahora"):
-            created, stamp = run_scheduled_backup(interval_hours=0)
+            created, stamp = run_scheduled_backup(interval_days=0)
             if created:
                 st.success(f"Respaldo creado: {stamp}")
             else:
@@ -500,7 +496,7 @@ def main() -> None:
         last_backup = get_setting("last_backup_at", "No disponible")
         st.caption(f"Último respaldo: {last_backup}")
 
-    run_scheduled_backup(interval_hours=backup_hours)
+    run_scheduled_backup(interval_days=BACKUP_INTERVAL_DAYS)
 
     greenhouses = get_greenhouses()
     st.sidebar.header("Invernaderos")
