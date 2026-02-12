@@ -190,9 +190,11 @@ def run_scheduled_backup(interval_days: int = BACKUP_INTERVAL_DAYS) -> tuple[boo
 
 
 def _pchip_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray) -> np.ndarray:
+    """Interpolación cúbica monótona (PCHIP) robusta para evitar curvas deformadas."""
     n = len(x)
     h = np.diff(x)
     delta = np.diff(y) / h
+
     d = np.zeros(n)
 
     for k in range(1, n - 1):
@@ -204,7 +206,16 @@ def _pchip_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray) -> np.nd
             d[k] = (w1 + w2) / (w1 / delta[k - 1] + w2 / delta[k])
 
     d[0] = ((2 * h[0] + h[1]) * delta[0] - h[0] * delta[1]) / (h[0] + h[1]) if n > 2 else delta[0]
+    if np.sign(d[0]) != np.sign(delta[0]):
+        d[0] = 0.0
+    elif n > 2 and (np.sign(delta[0]) != np.sign(delta[1])) and (abs(d[0]) > abs(3 * delta[0])):
+        d[0] = 3 * delta[0]
+
     d[-1] = ((2 * h[-1] + h[-2]) * delta[-1] - h[-1] * delta[-2]) / (h[-1] + h[-2]) if n > 2 else delta[-1]
+    if np.sign(d[-1]) != np.sign(delta[-1]):
+        d[-1] = 0.0
+    elif n > 2 and (np.sign(delta[-1]) != np.sign(delta[-2])) and (abs(d[-1]) > abs(3 * delta[-1])):
+        d[-1] = 3 * delta[-1]
 
     y_new = np.empty_like(x_new)
     idx = np.searchsorted(x, x_new) - 1
@@ -222,12 +233,12 @@ def _pchip_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray) -> np.nd
     t2 = t * t
     t3 = t2 * t
 
-    y_new[:] = (
-        (2 * t3 - 3 * t2 + 1) * yk
-        + (t3 - 2 * t2 + t) * hk * dk
-        + (-2 * t3 + 3 * t2) * yk1
-        + (t3 - t2) * hk * dk1
-    )
+    h00 = 2 * t3 - 3 * t2 + 1
+    h10 = t3 - 2 * t2 + t
+    h01 = -2 * t3 + 3 * t2
+    h11 = t3 - t2
+
+    y_new[:] = h00 * yk + h10 * hk * dk + h01 * yk1 + h11 * hk * dk1
     return y_new
 
 
@@ -358,7 +369,8 @@ def build_pdf_report(greenhouse_name: str, daily_df: pd.DataFrame, report_title:
     ax2 = ax1.twinx()
     ax2.bar(chart_df["date"], chart_df["humidity_avg"], color="#5DA5DA", alpha=0.65)
     ax2.set_ylabel("Humedad relativa promedio (%)")
-    fig1.autofmt_xdate()
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    fig1.autofmt_xdate(rotation=35)
     fig1.tight_layout()
 
     chart_1_buffer = BytesIO()
@@ -372,9 +384,10 @@ def build_pdf_report(greenhouse_name: str, daily_df: pd.DataFrame, report_title:
 
     fig2, ax3 = plt.subplots(figsize=(8, 2.8))
     ax3.bar(chart_df["date"], chart_df["co2_avg"], color="#60BD68")
-    ax3.set_ylabel("CO₂ promedio (ppm)")
+    ax3.set_ylabel("CO2 promedio (ppm)")
     ax3.set_xlabel("Fecha")
-    fig2.autofmt_xdate()
+    ax3.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    fig2.autofmt_xdate(rotation=35)
     fig2.tight_layout()
 
     chart_2_buffer = BytesIO()
@@ -382,14 +395,14 @@ def build_pdf_report(greenhouse_name: str, daily_df: pd.DataFrame, report_title:
     chart_2_buffer.seek(0)
     plt.close(fig2)
 
-    story.append(Paragraph("CO₂ promedio diario", styles["Heading2"]))
+    story.append(Paragraph("CO2 promedio diario", styles["Heading2"]))
     story.append(Image(chart_2_buffer, width=17 * cm, height=5.8 * cm))
     story.append(Spacer(1, 0.5 * cm))
 
     table_df = chart_df.copy()
     table_df["date"] = table_df["date"].dt.strftime("%Y-%m-%d")
     table_df = table_df[["date", "temp_avg", "humidity_avg", "co2_avg", "readings_count"]].round(2)
-    table_df.columns = ["Fecha", "Temp. prom (°C)", "HR prom (%)", "CO₂ prom (ppm)", "Lecturas"]
+    table_df.columns = ["Fecha", "Temp. prom (°C)", "HR prom (%)", "CO2 prom (ppm)", "Lecturas"]
 
     table = Table([table_df.columns.tolist()] + table_df.values.tolist(), repeatRows=1)
     table.setStyle(
@@ -625,7 +638,7 @@ def main() -> None:
                         st.rerun()
 
     with tab_graficas:
-        st.subheader("Climograma y CO₂ promedio diario")
+        st.subheader("Climograma y CO2 promedio diario")
         daily_df = get_daily_summary(greenhouse_id)
 
         if daily_df.empty:
@@ -678,7 +691,7 @@ def main() -> None:
             .mark_bar(color="#81C784")
             .encode(
                 x=alt.X("date_label:N", title="Fecha", sort=sort_order),
-                y=alt.Y("co2_avg:Q", title="CO₂ promedio diario (ppm)"),
+                y=alt.Y("co2_avg:Q", title="CO2 promedio diario (ppm)"),
                 tooltip=["date_label:N", "co2_avg:Q", "readings_count:Q"],
             )
             .properties(height=320)
