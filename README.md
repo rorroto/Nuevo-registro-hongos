@@ -20,7 +20,7 @@ App en Streamlit para registro ambiental de invernaderos de hongos comestibles, 
   - CSV de promedios diarios filtrados.
   - PDF de rango de fechas.
   - PDF anual.
-- Copias de seguridad programadas de la base de datos (intervalo configurable en horas).
+- Copias de seguridad programadas de la base de datos cada 30 días (con opción de ejecución manual).
 - Tema oscuro y logo atenuado opcional como marca de agua.
 
 ## Instalación local
