@@ -232,7 +232,7 @@ def _pchip_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray) -> np.nd
 
 
 def smooth_temperature_series(date_series: pd.Series, temp_series: pd.Series) -> tuple[np.ndarray, np.ndarray]:
-    x = mdates.date2num(pd.to_datetime(date_series).to_pydatetime())
+    x = mdates.date2num(pd.to_datetime(date_series).to_numpy())
     y = temp_series.to_numpy(dtype=float)
 
     if len(x) < 3 or np.any(np.diff(x) <= 0):
