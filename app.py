@@ -360,17 +360,27 @@ def build_pdf_report(greenhouse_name: str, daily_df: pd.DataFrame, report_title:
     chart_df["date"] = pd.to_datetime(chart_df["date"])
 
     fig1, ax1 = plt.subplots(figsize=(8, 3.2))
-    x_smooth, y_smooth = smooth_temperature_series(chart_df["date"], chart_df["temp_avg"])
-    ax1.plot(mdates.num2date(x_smooth), y_smooth, color="#F15854", linewidth=2.2)
-    ax1.scatter(chart_df["date"], chart_df["temp_avg"], color="#F15854", s=14, zorder=3)
+    chart_df = chart_df.sort_values("date").reset_index(drop=True)
+    x_pos = np.arange(len(chart_df), dtype=float)
+
+    if len(chart_df) >= 3:
+        x_dense = np.linspace(x_pos.min(), x_pos.max(), num=max(180, len(chart_df) * 30))
+        y_dense = _pchip_interpolate(x_pos, chart_df["temp_avg"].to_numpy(dtype=float), x_dense)
+        ax1.plot(x_dense, y_dense, color="#F15854", linewidth=2.2)
+    else:
+        ax1.plot(x_pos, chart_df["temp_avg"], color="#F15854", linewidth=2.2)
+
+    ax1.scatter(x_pos, chart_df["temp_avg"], color="#F15854", s=14, zorder=3)
     ax1.set_ylabel("Temperatura promedio (°C)")
     ax1.set_xlabel("Fecha")
 
     ax2 = ax1.twinx()
-    ax2.bar(chart_df["date"], chart_df["humidity_avg"], color="#5DA5DA", alpha=0.65)
+    ax2.bar(x_pos, chart_df["humidity_avg"], color="#5DA5DA", alpha=0.65, width=0.65)
     ax2.set_ylabel("Humedad relativa promedio (%)")
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-    fig1.autofmt_xdate(rotation=35)
+
+    tick_labels = chart_df["date"].dt.strftime("%Y-%m-%d")
+    ax1.set_xticks(x_pos)
+    ax1.set_xticklabels(tick_labels, rotation=35, ha="right")
     fig1.tight_layout()
 
     chart_1_buffer = BytesIO()
@@ -383,11 +393,11 @@ def build_pdf_report(greenhouse_name: str, daily_df: pd.DataFrame, report_title:
     story.append(Spacer(1, 0.4 * cm))
 
     fig2, ax3 = plt.subplots(figsize=(8, 2.8))
-    ax3.bar(chart_df["date"], chart_df["co2_avg"], color="#60BD68")
+    ax3.bar(x_pos, chart_df["co2_avg"], color="#60BD68", width=0.65)
     ax3.set_ylabel("CO2 promedio (ppm)")
     ax3.set_xlabel("Fecha")
-    ax3.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-    fig2.autofmt_xdate(rotation=35)
+    ax3.set_xticks(x_pos)
+    ax3.set_xticklabels(tick_labels, rotation=35, ha="right")
     fig2.tight_layout()
 
     chart_2_buffer = BytesIO()
